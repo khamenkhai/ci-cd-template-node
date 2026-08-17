@@ -8,13 +8,14 @@ A simple NestJS application with SQLite using Prisma ORM.
 
 ```
 ┌─ TRIGGERS (when to run)
-│  ├─ on: push to main
+│  ├─ on: push to dev
 │  └─ on: manual trigger
 │
 ├─ ENV (hardcoded config)
-│  ├─ NODE_VERSION
-│  ├─ SERVER_PORT
-│  └─ SERVER_APP_DIR
+│  ├─ NODE_VERSION: 24.19.0
+│  ├─ SERVER_PORT: 22
+│  ├─ SERVER_APP_DIR: /var/www/nest-app
+│  └─ PM2_APP_NAME: nest-app
 │
 ├─ JOB 1: BUILD
 │  ├─ checkout code
@@ -61,21 +62,51 @@ npm run build           →      (copies dist/ via SCP)
 
 ### SSH Key Setup
 
-1. Get the private key from your VPS:
+**Step 1: Get the private key from your VPS**
 ```bash
-cat ~/.ssh/mr_kham
+# SSH into your VPS
+ssh ubuntu@YOUR_VPS_IP
+
+# Show the private key content
+cat ~/.ssh/your_ssh
 ```
 
-2. Paste the entire output into GitHub Secret `SERVER_SSH_KEY`
+**Step 2: Copy the private key and paste into GitHub Secret**
 
-3. Make sure the public key is in `authorized_keys`:
+Copy the entire output including the headers:
+```
+-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
+```
+Paste it into GitHub Secret `SERVER_SSH_KEY`.
+
+**Step 3: Add the public key to `authorized_keys` on the VPS**
+
+Check if the public key is already in `authorized_keys`:
 ```bash
 cat ~/.ssh/authorized_keys
 ```
-If `mr_kham.pub` is not in there, add it:
+
+If `your_ssh.pub` is not listed, add it:
 ```bash
-cat ~/.ssh/mr_kham.pub >> ~/.ssh/authorized_keys
+cat ~/.ssh/your_ssh.pub >> ~/.ssh/authorized_keys
 ```
+
+Set correct permissions:
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+**Step 4: Verify SSH access works**
+
+Test from your local machine:
+```bash
+ssh -i ~/.ssh/your_ssh ubuntu@YOUR_VPS_IP
+```
+
+If this works, GitHub Actions will also work.
 
 ### Server Prerequisites
 
