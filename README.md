@@ -56,8 +56,26 @@ npm run build           →      (copies dist/ via SCP)
 | Secret | Description |
 |--------|-------------|
 | `SERVER_HOST` | VPS IP address |
-| `SERVER_USER` | SSH username |
+| `SERVER_USER` | SSH username (use `ubuntu` for Lightsail) |
 | `SERVER_SSH_KEY` | Private SSH key |
+
+### SSH Key Setup
+
+1. Get the private key from your VPS:
+```bash
+cat ~/.ssh/mr_kham
+```
+
+2. Paste the entire output into GitHub Secret `SERVER_SSH_KEY`
+
+3. Make sure the public key is in `authorized_keys`:
+```bash
+cat ~/.ssh/authorized_keys
+```
+If `mr_kham.pub` is not in there, add it:
+```bash
+cat ~/.ssh/mr_kham.pub >> ~/.ssh/authorized_keys
+```
 
 ### Server Prerequisites
 
