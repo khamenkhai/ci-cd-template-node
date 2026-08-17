@@ -22,7 +22,8 @@ on:
 env:
   NODE_VERSION: '24.19.0' # Node.js version to use for building the app
   SERVER_PORT: 22 # SSH port on your VPS (22 is the default)
-  SERVER_APP_DIR: '/var/www/nest-app' # Full path where the app lives on the VPS
+  SERVER_APP_DIR: '/var/www/ci-cd-template-node' # Full path where the app lives on the VPS
+  PM2_APP_NAME: 'nest-cicd-testing' # PM2 process name to restart on the VPS
 
 # ---------- JOBS ----------
 # Jobs run in parallel by default. 'needs' creates dependencies.
@@ -139,7 +140,7 @@ jobs:
             npm ci --omit=dev # Install only production dependencies (faster, smaller)
             npx prisma generate # Regenerate Prisma client on the server
             npx prisma migrate deploy # Apply any pending database migrations
-            pm2 restart nest-app || pm2 start dist/src/main.js --name nest-app # Restart or first-time start
+            pm2 restart ${{ env.PM2_APP_NAME }} || pm2 start dist/main.js --name ${{ env.PM2_APP_NAME }} # Restart or first-time start
 
             echo "Deployment complete!" # Success message in the logs
 
