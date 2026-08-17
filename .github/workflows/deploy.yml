@@ -1,0 +1,146 @@
+# ============================================================
+# CI/CD Pipeline: Build & Deploy NestJS App to VPS via SSH
+# ============================================================
+# This workflow runs automatically when you push to 'main'
+# or manually via GitHub Actions UI (workflow_dispatch).
+#
+# Flow: Build (lint, compile) → Deploy (copy files, install, migrate, restart)
+# ============================================================
+
+name: Deploy to VPS
+
+# ---------- TRIGGERS ----------
+# When should this workflow run?
+on:
+  push:
+    branches: [dev] # Run when code is pushed to the 'dev' branch
+  workflow_dispatch: # Allow manual trigger from GitHub Actions UI
+
+# ---------- GLOBAL ENVIRONMENT VARIABLES ----------
+# These are available to all jobs and steps below.
+# You can reference them with ${{ env.VARIABLE_NAME }}
+env:
+  NODE_VERSION: '24.19.0' # Node.js version to use for building the app
+  SERVER_PORT: 22 # SSH port on your VPS (22 is the default)
+  SERVER_APP_DIR: '/var/www/nest-app' # Full path where the app lives on the VPS
+
+# ---------- JOBS ----------
+# Jobs run in parallel by default. 'needs' creates dependencies.
+jobs:
+
+  # ==========================================
+  # JOB 1: BUILD
+  # Compiles the app and uploads artifacts
+  # for the deploy job to use later.
+  # ==========================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner (GitHub-hosted VM)
+
+    steps:
+      # Step 1: Download the repository code into the runner
+      - uses: actions/checkout@v4
+
+      # Step 2: Install Node.js with caching enabled
+      # Caching speeds up subsequent runs by reusing downloaded npm packages
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }} # Use the Node version defined above
+          cache: 'npm' # Cache the npm global folder (~/.npm)
+
+      # Step 3: Install all dependencies (clean install, no lockfile changes)
+      - run: npm ci
+
+      # Step 4: Generate the Prisma client (TypeScript types for database models)
+      # This reads prisma/schema.prisma and creates src/database/generated/
+      - run: npm run prisma:generate
+
+      # Step 5: Run ESLint to catch code errors and enforce style rules
+      # If linting fails, the pipeline stops here
+      - run: npm run lint
+
+      # Step 6: Compile TypeScript into JavaScript (output goes to dist/)
+      - run: npm run build
+
+      # Step 7: Save the compiled dist/ folder as an artifact
+      # Artifacts are files shared between jobs (build → deploy)
+      # retention-days: 3 means GitHub auto-deletes it after 3 days
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist # Unique name to identify this artifact
+          path: dist/ # What folder to upload
+          retention-days: 3 # Auto-delete after 3 days to save storage
+
+      # Step 8: Save the generated Prisma client as another artifact
+      # The deploy job needs this to connect to the database
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prisma-generated
+          path: src/database/generated/
+          retention-days: 3
+
+  # ==========================================
+  # JOB 2: DEPLOY
+  # Copies files to your VPS and restarts the app.
+  # Only runs after 'build' succeeds AND only on 'main' branch.
+  # ==========================================
+  deploy:
+    name: Deploy
+    needs: build # Wait for 'build' job to finish before starting
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev' # Only deploy from the dev branch
+
+    # GitHub Environment: 'production'
+    # You can add protection rules (e.g., require approval) in repo settings
+    environment: production
+
+    steps:
+      # Step 1: Checkout the repository (needed for scp-action to find files)
+      - uses: actions/checkout@v4
+
+      # Step 2: Download the compiled dist/ folder from the build job
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/ # Where to place the downloaded files locally
+
+      # Step 3: Download the generated Prisma client from the build job
+      - uses: actions/download-artifact@v4
+        with:
+          name: prisma-generated
+          path: src/database/generated/
+
+      # Step 4: Copy build artifacts to the VPS via SCP (secure copy)
+      # This uploads the compiled code, Prisma files, and config to your server
+      - name: Copy build artifacts to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }} # VPS IP address (e.g., 123.45.67.89)
+          username: ${{ secrets.SERVER_USER }} # SSH username (e.g., root, deploy)
+          key: ${{ secrets.SERVER_SSH_KEY }} # Private SSH key (paste in GitHub Secrets)
+          port: ${{ env.SERVER_PORT }} # SSH port (22 by default)
+          source: "dist/,src/database/generated/,prisma/migrations/,package.json,package-lock.json,prisma/schema.prisma,prisma.config.ts" # Files/folders to upload
+          target: ${{ env.SERVER_APP_DIR }} # Where to put them on the VPS
+          strip_components: 0 # Keep the full folder structure (0 = no stripping)
+
+      # Step 5: SSH into the VPS and run post-deploy commands
+      # This installs dependencies, runs database migrations, and restarts the app
+      - name: Install, migrate & restart on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ env.SERVER_PORT }}
+          script: |
+            set -e # Exit immediately if any command fails (prevents broken deploys)
+            cd ${{ env.SERVER_APP_DIR }} # Navigate to the app directory on the VPS
+
+            npm ci --omit=dev # Install only production dependencies (faster, smaller)
+            npx prisma generate # Regenerate Prisma client on the server
+            npx prisma migrate deploy # Apply any pending database migrations
+            pm2 restart nest-app || pm2 start dist/src/main.js --name nest-app # Restart or first-time start
+
+            echo "Deployment complete!" # Success message in the logs
+
+
