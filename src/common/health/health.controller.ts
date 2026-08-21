@@ -12,7 +12,7 @@ export class HealthController {
       status: 'ok',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
-      deployedAt: '3rd deployed',
+      deployedAt: '4th deployed',
     };
   }
 }
